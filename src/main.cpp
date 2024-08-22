@@ -108,10 +108,10 @@ void opcontrol() {
 		left_mg.move(left);									// Moves the motor groups
 		right_mg.move(right);
 
-		if (left <= -a || left >= -a) {									// If its stopped, brake (it dosent work for some reason)
+		if (left >= -a && left <= a) {									// If its stopped, brake (it dosent work for some reason)
 			left_mg.brake();
 		}
-		if (right <= -a || left >= a) {
+		if (right >= -a && right <= a) {
 			right_mg.brake();
 		}
 
