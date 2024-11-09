@@ -80,38 +80,43 @@ void opcontrol() {
 	//pros::MotorGroup left_mg({1, -2, 3});    // Creates a motor group with forwards ports 1 & 3 and reversed port 2
 	//pros::MotorGroup right_mg({-4, 5, -6});  // Creates a motor group with forwards port 5 and reversed ports 4 & 6
 
-	pros::MotorGroup left_mg({-11, -20});
-	pros::MotorGroup right_mg({1, 10});
+	pros::MotorGroup left_mg({-20, -19});
+	pros::MotorGroup right_mg({18, 17});
+	pros::Motor roller(1);
+	pros::Motor intake(-10);
 
-	pros::ADIDigitalOut goalClamp('A');
+	pros::adi::DigitalOut goalClamp('A');
+
+	int drive_deadzone = 20;
 
 	while (true) {
-		pros::lcd::print(0, "%d %d %d", (pros::lcd::read_buttons() & LCD_BTN_LEFT) >> 2,
-		                 (pros::lcd::read_buttons() & LCD_BTN_CENTER) >> 1,
-		                 (pros::lcd::read_buttons() & LCD_BTN_RIGHT) >> 0);  // Prints status of the emulated screen LCDs
-
-		// Arcade control scheme
-		//int dir = master.get_analog(ANALOG_LEFT_Y);    // Gets amount forward/backward from left joystick
-		//int turn = master.get_analog(ANALOG_RIGHT_X);  // Gets the turn left/right from right joystick
-		//left_mg.move(dir - turn);                      // Sets left motor voltage
-		//right_mg.move(dir + turn);                     // Sets right motor voltage
-		//pros::delay(20);                               // Run for 20 ms then update
 
 		int left = master.get_analog(ANALOG_LEFT_Y);		// Sets the motor groups to control
 		int right = master.get_analog(ANALOG_RIGHT_Y);
 		bool goalClampControll = master.get_digital(DIGITAL_R1);
 
-		int a = 20;											// Sets the deadzone
+		int intakeDirection;
+		if (master.get_digital(DIGITAL_L1)) {
+			intakeDirection = 1;
+		} else if (master.get_digital(DIGITAL_L2)) {
+			intakeDirection = -1;
+		} else {
+			intakeDirection = 0;
+		}
+
+		intake.move(intakeDirection * 127);
+		roller.move(intakeDirection * 127);
 
 		goalClamp.set_value(goalClampControll);
 
-		left_mg.move(left);									// Moves the motor groups
-		right_mg.move(right);
-
-		if (left >= -a && left <= a) {									// If its stopped, brake (it dosent work for some reason)
+		if (left < -drive_deadzone || left > drive_deadzone) {		// Moves the motor groups, brake if inside deadzone
+			left_mg.move(left);	
+		} else {
 			left_mg.brake();
 		}
-		if (right >= -a && right <= a) {
+		if (right < -drive_deadzone || right > drive_deadzone) {
+			right_mg.move(right);
+		} else {
 			right_mg.brake();
 		}
 
