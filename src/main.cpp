@@ -20,12 +20,18 @@ int replaySaveSlot = 0;
 
 /**
  * A callback function for LLEMU's center button.
- *
- * When this callback is fired, it will toggle line 2 of the LCD text between
- * "I was pressed!" and nothing.
  */
 void on_center_button() {
-	
+	replaySaveSlot = std::clamp(replaySaveSlot - 1, 0, 9);
+	pros::lcd::set_text(3, "Replay slot: " + std::to_string(replaySaveSlot));
+}
+void on_left_button() {
+	replaySaveSlot = 0;
+	pros::lcd::set_text(3, "Replay slot: " + std::to_string(replaySaveSlot));
+}
+void on_right_button() {
+	replaySaveSlot = std::clamp(replaySaveSlot + 1, 0, 9);
+	pros::lcd::set_text(3, "Replay slot: " + std::to_string(replaySaveSlot));
 }
 
 /**
@@ -36,18 +42,15 @@ void on_center_button() {
  */
 void initialize() {
 	pros::lcd::initialize();
-	pros::lcd::set_text(0, "0 (Init)");
-	pros::lcd::set_text(1, "1");
-	pros::lcd::set_text(2, "2");
-	pros::lcd::set_text(3, "3");
-	pros::lcd::set_text(4, "4");
-	pros::lcd::set_text(5, "5");
-	pros::lcd::set_text(6, "6");
-	pros::lcd::set_text(7, "7");
 	
 	pros::lcd::register_btn1_cb(on_center_button);
+	pros::lcd::register_btn0_cb(on_left_button);
+	pros::lcd::register_btn2_cb(on_right_button);
 
 	pros::ADIDigitalOut goalClamp('A');
+	pros::Controller master(pros::E_CONTROLLER_MASTER);
+
+	// Sets the replay slot before autonomous
 }
 
 /**
@@ -69,7 +72,24 @@ void disabled() {
  * starts.
  */
 void competition_initialize() {
+	pros::Controller master(pros::E_CONTROLLER_MASTER);	
 	pros::lcd::set_text(0, "Comp init");
+	return;
+
+	// pros::Controller master(pros::E_CONTROLLER_MASTER);
+
+	// // Sets the replay slot before autonomous (make buttons to select)
+	// while (true) {
+	// 	if (master.get_digital_new_press(DIGITAL_UP)) {
+	// 		replaySaveSlot = std::clamp(replaySaveSlot + 1, 0, 9);
+	// 		std::string text = "Replay slot : " + std::to_string(replaySaveSlot);
+	// 		master.print(0, 0, text.c_str());
+	// 	} else if (master.get_digital_new_press(DIGITAL_DOWN)) {
+	// 		replaySaveSlot = std::clamp(replaySaveSlot - 1, 0, 9);
+	// 		std::string text = "Replay slot : " + std::to_string(replaySaveSlot);
+	// 		master.print(0, 0, text.c_str());
+	// 	}
+	// }
 }
 
 /**
@@ -84,9 +104,75 @@ void competition_initialize() {
  * from where it left off.
  */
 void autonomous() {
-	pros::lcd::set_text(0, "Autonomous");
+	pros::lcd::set_text(0, "Autonomous with replay number " + std::to_string(replaySaveSlot));
 
+	pros::MotorGroup left_mg({-20, -19});
+	pros::MotorGroup right_mg({18, 17});
+	pros::Motor intake(1);
+	pros::Motor ramp(-10);
+	pros::adi::DigitalOut goalClamp('A');
 	
+	int drivetrainControl[1500];	// 0 -> 749 is left, 750 -> 1499 is right
+	int intakeControl[750];			// 0 -> 749 is intake
+	int goalClampControlArray[50];	// Stores the time when the goal clamp is toggled
+	int driveDeadzone = 20;
+	int time = 0;
+	int nextGoalClampIndex = 0;
+
+	std::string filePath = "/usd/replay" + std::to_string(replaySaveSlot) + ".bin";
+	const char * fileName = filePath.c_str();
+	FILE* usd_file_read = fopen(fileName, "r");
+	//FILE* usd_file_read = fopen("/usd/replay.bin", "r");
+	if (usd_file_read == nullptr) {
+		pros::lcd::set_text(2, "Failed to open read file");
+		return;
+	}
+	int buf[2300];
+	size_t elementsRead = std::fread(buf, sizeof(int), 2300, usd_file_read); 
+	if (elementsRead != 2300) {
+		pros::lcd::set_text(2, "Error reading data from file!");
+		return;
+	}
+	std::fclose(usd_file_read); 
+	// Sets individual arrays to the values in the file
+	for (int i = 0; i < 750; i++) {
+		drivetrainControl[i] = buf[i];
+		drivetrainControl[i + 750] = buf[i + 750];
+	}
+	for (int i = 0; i < 750; i++) {
+		intakeControl[i] = buf[i + 1500];
+	}
+	for (int i = 0; i < 50; i++) {
+		goalClampControlArray[i] = buf[i + 2250];
+	}
+
+	while (time < 750) {
+		int left = drivetrainControl[time];
+		int right = drivetrainControl[time + 750];
+		int intakeDirection = intakeControl[time];
+		bool goalClampControl = false;
+		if (time == goalClampControlArray[nextGoalClampIndex]) {
+			goalClampControl = !goalClampControl;
+			nextGoalClampIndex++;
+		}
+
+		if (left < -driveDeadzone || left > driveDeadzone) {		// Moves the motor groups, brake if inside deadzone
+			left_mg.move(left);	
+		} else {
+			left_mg.brake();
+		}
+		if (right < -driveDeadzone || right > driveDeadzone) {
+			right_mg.move(right);
+		} else {
+			right_mg.brake();
+		}
+		intake.move(intakeDirection * 127);		// Moves the intake and roller
+		ramp.move(intakeDirection * 127);
+		goalClamp.set_value(goalClampControl);	// Moves the goal clamp
+
+		time++;
+		pros::delay(20);
+	}
 }
 
 /**
@@ -104,6 +190,8 @@ void autonomous() {
  */
 
 void opcontrol() {
+	pros::lcd::set_text(0, "Operator control");
+
 	pros::Controller master(pros::E_CONTROLLER_MASTER);
 	pros::MotorGroup left_mg({-20, -19});
 	pros::MotorGroup right_mg({18, 17});
@@ -131,14 +219,27 @@ void opcontrol() {
 	replaySaveSlot = 0;
 
 	while (true) {
+		if (runStatus == STATUS_DRIVING) {			// Switches load slot
+			if (master.get_digital_new_press(DIGITAL_UP)) {
+				replaySaveSlot = std::clamp(replaySaveSlot + 1, 0, 9);
+				pros::lcd::set_text(3, "Replay slot: " + std::to_string(replaySaveSlot));
+				std::string text = "Replay slot: " + std::to_string(replaySaveSlot);
+				master.print(0, 0, text.c_str());
+			} else if (master.get_digital_new_press(DIGITAL_DOWN)) {
+				replaySaveSlot = std::clamp(replaySaveSlot - 1, 0, 9);
+				pros::lcd::set_text(3, "Replay slot: " + std::to_string(replaySaveSlot));
+				std::string text = "Replay slot: " + std::to_string(replaySaveSlot);
+				master.print(0, 0, text.c_str());
+			}
+		}
 		if (master.get_digital(DIGITAL_Y) && master.get_digital(DIGITAL_B)  && switchButtonStatus == 0) {
 			switchButtonStatus = 2;
 			if (driveMode == DRIVE_MODE_ARCADE) {	// Switches drive mode
 				driveMode = DRIVE_MODE_TANK;
-				master.set_text(3, 0, "Tank drive");
+				master.print(0, 0, "Tank drive           ");
 			} else if (driveMode == DRIVE_MODE_TANK) {
 				driveMode = DRIVE_MODE_ARCADE;
-				master.set_text(3, 0, "Arcade drive");
+				master.print(0, 0, "Arcade drive             ");
 			}
 		} else if (master.get_digital(DIGITAL_Y) && master.get_digital(DIGITAL_B) && switchButtonStatus == 2) {
 			switchButtonStatus = 1;
