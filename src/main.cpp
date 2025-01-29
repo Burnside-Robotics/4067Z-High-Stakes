@@ -85,6 +85,8 @@ void competition_initialize() {
  */
 void autonomous() {
 	pros::lcd::set_text(0, "Autonomous");
+
+	
 }
 
 /**
@@ -125,6 +127,8 @@ void opcontrol() {
 	int nextGoalClampIndex = 0;
 
 	int time = 0;
+
+	replaySaveSlot = 0;
 
 	while (true) {
 		if (master.get_digital(DIGITAL_Y) && master.get_digital(DIGITAL_B)  && switchButtonStatus == 0) {
@@ -196,9 +200,10 @@ void opcontrol() {
 			runStatus = STATUS_DRIVING;
 			pros::lcd::set_text(0, "Driving");
 			// Saves the file to disk
-			const char * fileName = ("/usd/replay_" + std::to_string(replaySaveSlot) + ".bin").c_str();
-			//FILE* usd_file_write = fopen(fileName, "wb");
-			FILE* usd_file_write = fopen("/usd/replay.bin", "wb");
+			std::string filePath = "/usd/replay" + std::to_string(replaySaveSlot) + ".bin";
+			const char * fileName = filePath.c_str();
+			FILE* usd_file_write = fopen(fileName, "wb");
+			//FILE* usd_file_write = fopen("/usd/replay.bin", "wb");
 			if (usd_file_write == nullptr) {
 				pros::lcd::set_text(0, "Failed to open file");
 				return;
@@ -239,9 +244,10 @@ void opcontrol() {
 			runStatus = STATUS_REPLAYING;
 			pros::lcd::set_text(0, "Replaying");
 			// Loads file from disk
-			const char * fileName = ("/usd/replay_" + std::to_string(replaySaveSlot) + ".bin").c_str();
-			//FILE* usd_file_read = fopen(fileName, "r");
-			FILE* usd_file_read = fopen("/usd/replay.bin", "r");
+			std::string filePath = "/usd/replay" + std::to_string(replaySaveSlot) + ".bin";
+			const char * fileName = filePath.c_str();
+			FILE* usd_file_read = fopen(fileName, "r");
+			//FILE* usd_file_read = fopen("/usd/replay.bin", "r");
 			if (usd_file_read == nullptr) {
 				pros::lcd::set_text(2, "Failed to open read file");
 				return;
