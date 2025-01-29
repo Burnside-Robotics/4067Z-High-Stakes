@@ -1,5 +1,12 @@
 #include "main.h"
+#include <chrono>
 
+struct Iteration {
+	int16_t left;
+	int16_t right;
+	int16_t intake;
+	bool goalClamp;
+};
 
 int interpolate(float last, float current, float strength) {
 	return last + (current - last) * strength;
@@ -215,10 +222,13 @@ void opcontrol() {
 	int nextGoalClampIndex = 0;
 
 	int time = 0;
+	int i = 0;
 
 	replaySaveSlot = 0;
 
 	while (true) {
+		std::chrono::_V2::system_clock::time_point begin = std::chrono::high_resolution_clock::now();
+		
 		if (runStatus == STATUS_DRIVING) {			// Switches load slot
 			if (master.get_digital_new_press(DIGITAL_UP)) {
 				replaySaveSlot = std::clamp(replaySaveSlot + 1, 0, 9);
@@ -410,6 +420,17 @@ void opcontrol() {
 
 		pros::lcd::set_text(1, "Time " + std::to_string(time));
 		lastGoalClamp = goalClampControl;
+
+		std::chrono::_V2::system_clock::time_point end = std::chrono::high_resolution_clock::now();
+
+		std::chrono::duration<double> elapsed = end - begin;
+
+		if (i >= 50) {
+			i = 0;
+			pros::lcd::set_text(4, "Time taken: " + std::to_string(elapsed.count()));
+		}
+
+		i++;
 		pros::delay(20);
 	}
 }
