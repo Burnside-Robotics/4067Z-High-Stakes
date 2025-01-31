@@ -82,21 +82,6 @@ void competition_initialize() {
 	pros::Controller master(pros::E_CONTROLLER_MASTER);	
 	pros::lcd::set_text(0, "Comp init");
 	return;
-
-	// pros::Controller master(pros::E_CONTROLLER_MASTER);
-
-	// // Sets the replay slot before autonomous (make buttons to select)
-	// while (true) {
-	// 	if (master.get_digital_new_press(DIGITAL_UP)) {
-	// 		replaySaveSlot = std::clamp(replaySaveSlot + 1, 0, 9);
-	// 		std::string text = "Replay slot : " + std::to_string(replaySaveSlot);
-	// 		master.print(0, 0, text.c_str());
-	// 	} else if (master.get_digital_new_press(DIGITAL_DOWN)) {
-	// 		replaySaveSlot = std::clamp(replaySaveSlot - 1, 0, 9);
-	// 		std::string text = "Replay slot : " + std::to_string(replaySaveSlot);
-	// 		master.print(0, 0, text.c_str());
-	// 	}
-	// }
 }
 
 /**
@@ -111,20 +96,17 @@ void competition_initialize() {
  * from where it left off.
  */
 void autonomous() {
-	pros::lcd::set_text(0, "Autonomous with replay number " + std::to_string(replaySaveSlot));
-
+	pros::lcd::set_text(0, "Autonomous with replay slot " + std::to_string(replaySaveSlot));
+	
 	pros::MotorGroup left_mg({-20, -19});
 	pros::MotorGroup right_mg({18, 17});
-	pros::Motor intake(1);
+	pros::Motor intake(-1);
 	pros::Motor ramp(-10);
 	pros::adi::DigitalOut goalClamp('A');
-	
-	int drivetrainControl[1500];	// 0 -> 749 is left, 750 -> 1499 is right
-	int intakeControl[750];			// 0 -> 749 is intake
-	int goalClampControlArray[50];	// Stores the time when the goal clamp is toggled
-	int driveDeadzone = 20;
-	int time = 0;
-	int nextGoalClampIndex = 0;
+	pros::ADILED leds('B', 56);
+
+	int driveDeadzone = 10;
+	Iteration iterations[750];
 
 	std::string filePath = "/usd/replay" + std::to_string(replaySaveSlot) + ".bin";
 	const char * fileName = filePath.c_str();
@@ -134,52 +116,35 @@ void autonomous() {
 		pros::lcd::set_text(2, "Failed to open read file");
 		return;
 	}
-	int buf[2300];
-	size_t elementsRead = std::fread(buf, sizeof(int), 2300, usd_file_read); 
-	if (elementsRead != 2300) {
+	size_t elementsRead = std::fread(iterations, sizeof(Iteration), 750, usd_file_read); 
+	if (elementsRead != 750) {
 		pros::lcd::set_text(2, "Error reading data from file!");
 		return;
 	}
 	std::fclose(usd_file_read); 
-	// Sets individual arrays to the values in the file
-	for (int i = 0; i < 750; i++) {
-		drivetrainControl[i] = buf[i];
-		drivetrainControl[i + 750] = buf[i + 750];
-	}
-	for (int i = 0; i < 750; i++) {
-		intakeControl[i] = buf[i + 1500];
-	}
-	for (int i = 0; i < 50; i++) {
-		goalClampControlArray[i] = buf[i + 2250];
-	}
 
-	while (time < 750) {
-		int left = drivetrainControl[time];
-		int right = drivetrainControl[time + 750];
-		int intakeDirection = intakeControl[time];
-		bool goalClampControl = false;
-		if (time == goalClampControlArray[nextGoalClampIndex]) {
-			goalClampControl = !goalClampControl;
-			nextGoalClampIndex++;
-		}
-
-		if (left < -driveDeadzone || left > driveDeadzone) {		// Moves the motor groups, brake if inside deadzone
-			left_mg.move(left);	
+	for (int i = 0; i < 750; i++) {
+		if (iterations[i].left < -driveDeadzone || iterations[i].left > driveDeadzone) {		// Moves the motor groups, brake if inside deadzone
+			left_mg.move(iterations[i].left);	
 		} else {
 			left_mg.brake();
 		}
-		if (right < -driveDeadzone || right > driveDeadzone) {
-			right_mg.move(right);
+		if (iterations[i].right < -driveDeadzone || iterations[i].right > driveDeadzone) {
+			right_mg.move(iterations[i].right);
 		} else {
 			right_mg.brake();
 		}
-		intake.move(intakeDirection * 127);		// Moves the intake and roller
-		ramp.move(intakeDirection * 127);
-		goalClamp.set_value(goalClampControl);	// Moves the goal clamp
-
-		time++;
+		intake.move(iterations[i].intake * 127);
+		ramp.move(iterations[i].intake * 127);
+		goalClamp.set_value(iterations[i].goalClamp);
+		pros::lcd::set_text(1, "Time " + std::to_string(i));
 		pros::delay(20);
 	}
+	left_mg.move(0);
+	right_mg.move(0);
+	intake.move(0);
+	ramp.move(0);
+	goalClamp.set_value(false);
 }
 
 /**
@@ -202,11 +167,12 @@ void opcontrol() {
 	pros::Controller master(pros::E_CONTROLLER_MASTER);
 	pros::MotorGroup left_mg({-20, -19});
 	pros::MotorGroup right_mg({18, 17});
-	pros::Motor intake(1);
+	pros::Motor intake(-1);
 	pros::Motor ramp(-10);
 	pros::adi::DigitalOut goalClamp('A');
+	pros::ADILED leds('B', 56);
 
-	int driveDeadzone = 20;
+	int driveDeadzone = 10;
 	DriveMode driveMode = DRIVE_MODE_ARCADE;
 	float interpolateStrength = 0.2;
 	int lastTurn = 0;
@@ -214,17 +180,14 @@ void opcontrol() {
 	bool switchButtonStatus = 0;	// 0 -> not pressed, 1 -> held, 2 -> just pressed
 
 	Status runStatus = STATUS_DRIVING;
-	// --- Arrays to save ---
-	int drivetrainControl[1500];	// 0 -> 749 is left, 750 -> 1499 is right
-	int intakeControl[750];			// 0 -> 749 is intake
-	int goalClampControlArray[50];	// Stores the time when the goal clamp is toggled
-	// ----------------------
-	int nextGoalClampIndex = 0;
+	Iteration iterations[750];
 
 	int time = 0;
-	int i = 0;
+	int i = 0;	// Used for timing the loop
 
 	replaySaveSlot = 0;
+
+	leds.set_all(0x808080);
 
 	while (true) {
 		std::chrono::_V2::system_clock::time_point begin = std::chrono::high_resolution_clock::now();
@@ -297,13 +260,10 @@ void opcontrol() {
 			time = 0;
 		} else if (runStatus == STATUS_RECORDING && time < 750) {
 			// Recording ------------
-			drivetrainControl[time] = left;
-			drivetrainControl[time + 750] = right;
-			intakeControl[time] = intakeDirection;
-			if (goalClampControl != lastGoalClamp) {
-				goalClampControlArray[nextGoalClampIndex] = time;
-				nextGoalClampIndex++;
-			}
+			iterations[time].left = left;
+			iterations[time].right = right;
+			iterations[time].intake = intakeDirection;
+			iterations[time].goalClamp = goalClampControl;
 
 			time++;
 		} else if (runStatus == STATUS_RECORDING && time >= 750) {
@@ -319,19 +279,9 @@ void opcontrol() {
 				pros::lcd::set_text(0, "Failed to open file");
 				return;
 			}
-			// Concatenates the arrays into one array to save
-			int concatArray[2300];	// 0 -> 1499 is drivetrain, 1500 -> 2249 is intake, 2250 -> 2299 is goalClamp
-			for (int i = 0; i < 1500; i++) {
-				concatArray[i] = drivetrainControl[i];
-			}
-			for (int i = 0; i < 750; i++) {
-				concatArray[i + 1500] = intakeControl[i];
-			}
-			for (int i = 0; i < 50; i++) {
-				concatArray[i + 2250] = goalClampControlArray[i];
-			}
-			size_t elementsWritten = std::fwrite(concatArray, sizeof(int), 2300, usd_file_write);
-			if (elementsWritten != 2300) {
+			
+			size_t elementsWritten = std::fwrite(iterations, sizeof(Iteration), 750, usd_file_write);
+			if (elementsWritten != 750) {
 				pros::lcd::set_text(2, "Error writing data to file!");
 				return;
 			} else {
@@ -351,7 +301,6 @@ void opcontrol() {
 		} else if (runStatus == STATUS_REPLAY_COUTNDOWN && time >= 150) {
 			// Starts replay
 			time = 0;
-			nextGoalClampIndex = 0;
 			runStatus = STATUS_REPLAYING;
 			pros::lcd::set_text(0, "Replaying");
 			// Loads file from disk
@@ -363,35 +312,19 @@ void opcontrol() {
 				pros::lcd::set_text(2, "Failed to open read file");
 				return;
 			}
-			int buf[2300];
-			size_t elementsRead = std::fread(buf, sizeof(int), 2300, usd_file_read); 
-			if (elementsRead != 2300) {
+			size_t elementsRead = std::fread(iterations, sizeof(Iteration), 750, usd_file_read); 
+			if (elementsRead != 750) {
 				pros::lcd::set_text(2, "Error reading data from file!");
 				return;
 			}
 			std::fclose(usd_file_read); 
-			// Sets individual arrays to the values in the file
-			for (int i = 0; i < 750; i++) {
-				drivetrainControl[i] = buf[i];
-				drivetrainControl[i + 750] = buf[i + 750];
-			}
-			for (int i = 0; i < 750; i++) {
-				intakeControl[i] = buf[i + 1500];
-			}
-			for (int i = 0; i < 50; i++) {
-				goalClampControlArray[i] = buf[i + 2250];
-			}
 
 		} else if (runStatus == STATUS_REPLAYING && time < 750) {
 			// Replaying ------------
-			left = drivetrainControl[time];
-			right = drivetrainControl[time + 750];
-			intakeDirection = intakeControl[time];
-			if (time == goalClampControlArray[nextGoalClampIndex]) {
-				goalClampControl = !goalClampControl;
-				nextGoalClampIndex++;
-			}
-
+			left = iterations[time].left;
+			right = iterations[time].right;
+			intakeDirection = iterations[time].intake;
+			goalClampControl = iterations[time].goalClamp;
 			time++;
 		} else if (runStatus == STATUS_REPLAYING && time >= 750) {
 			// End replay
@@ -422,7 +355,6 @@ void opcontrol() {
 		lastGoalClamp = goalClampControl;
 
 		std::chrono::_V2::system_clock::time_point end = std::chrono::high_resolution_clock::now();
-
 		std::chrono::duration<double> elapsed = end - begin;
 
 		if (i >= 50) {
