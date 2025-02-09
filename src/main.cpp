@@ -98,10 +98,10 @@ void competition_initialize() {
 void autonomous() {
 	pros::lcd::set_text(0, "Autonomous with replay slot " + std::to_string(replaySaveSlot));
 	
-	pros::MotorGroup left_mg({-20, -19});
-	pros::MotorGroup right_mg({18, 17});
-	pros::Motor intake(-1);
-	pros::Motor ramp(-10);
+	pros::MotorGroup left_mg({-20, -1});
+	pros::MotorGroup right_mg({19, 2});
+	pros::Motor intake(-18);
+	pros::Motor ramp(-17);
 	pros::adi::DigitalOut goalClamp('A');
 	pros::ADILED leds('B', 56);
 
@@ -165,10 +165,10 @@ void opcontrol() {
 	pros::lcd::set_text(0, "Operator control");
 
 	pros::Controller master(pros::E_CONTROLLER_MASTER);
-	pros::MotorGroup left_mg({-20, -19});
-	pros::MotorGroup right_mg({18, 17});
-	pros::Motor intake(-1);
-	pros::Motor ramp(-10);
+	pros::MotorGroup left_mg({-20, -1});
+	pros::MotorGroup right_mg({19, 2});
+	pros::Motor intake(-18);
+	pros::Motor ramp(-17);
 	pros::adi::DigitalOut goalClamp('A');
 	pros::ADILED leds('B', 56);
 
